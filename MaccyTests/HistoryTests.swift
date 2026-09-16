@@ -8,6 +8,8 @@ class HistoryTests: XCTestCase { // swiftlint:disable:this type_body_length
   let savedSize = Defaults[.size]
   let savedSortBy = Defaults[.sortBy]
   let savedPinTo = Defaults[.pinTo]
+  let savedActiveProfile = Defaults[.activeProfile]
+  let savedProfileNames = Defaults[.profileNames]
   let history = History.shared
 
   override func setUp() {
@@ -16,6 +18,8 @@ class HistoryTests: XCTestCase { // swiftlint:disable:this type_body_length
     Defaults[.size] = 10
     Defaults[.sortBy] = .firstCopiedAt
     Defaults[.pinTo] = .bottom
+    Defaults[.activeProfile] = "All"
+    Defaults[.profileNames] = ["All", "Work", "Personal"]
   }
 
   override func tearDown() {
@@ -23,10 +27,28 @@ class HistoryTests: XCTestCase { // swiftlint:disable:this type_body_length
     Defaults[.size] = savedSize
     Defaults[.sortBy] = savedSortBy
     Defaults[.pinTo] = savedPinTo
+    Defaults[.activeProfile] = savedActiveProfile
+    Defaults[.profileNames] = savedProfileNames
   }
 
   func testDefaultIsEmpty() {
     XCTAssertEqual(history.items, [])
+  }
+
+  func testActiveProfileFiltersVisibleItems() {
+    Defaults[.activeProfile] = "Work"
+    let workItem = history.add(historyItem("work"))
+
+    Defaults[.activeProfile] = "Personal"
+    let personalItem = history.add(historyItem("personal"))
+
+    Defaults[.activeProfile] = "Work"
+    history.reloadVisibleItems()
+
+    XCTAssertEqual(history.items.count, 1)
+    XCTAssertEqual(history.items[0], workItem)
+    XCTAssertNotEqual(history.items[0], personalItem)
+    XCTAssertEqual(history.items[0].item.profile, "Work")
   }
 
   func testAdding() {

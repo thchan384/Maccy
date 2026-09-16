@@ -109,12 +109,13 @@ class AppState: Sendable {
   func openPreferences() { // swiftlint:disable:this function_body_length
     if settingsWindowController == nil {
       let generalTitle = NSLocalizedString("Title", tableName: "GeneralSettings", comment: "")
+      let profilesTitle = NSLocalizedString("Profiles", comment: "")
       let storageTitle = NSLocalizedString("Title", tableName: "StorageSettings", comment: "")
       let appearanceTitle = NSLocalizedString("Title", tableName: "AppearanceSettings", comment: "")
       let pinsTitle = NSLocalizedString("Title", tableName: "PinsSettings", comment: "")
       let ignoreTitle = NSLocalizedString("Title", tableName: "IgnoreSettings", comment: "")
       let advancedTitle = NSLocalizedString("Title", tableName: "AdvancedSettings", comment: "")
-      let toolbarTitles = [generalTitle, storageTitle, appearanceTitle, pinsTitle, ignoreTitle, advancedTitle]
+      let toolbarTitles = [generalTitle, profilesTitle, storageTitle, appearanceTitle, pinsTitle, ignoreTitle, advancedTitle]
       let titleAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
       let titleWidth = toolbarTitles.reduce(CGFloat.zero) {
         $0 + ($1 as NSString).size(withAttributes: titleAttributes).width
@@ -131,6 +132,14 @@ class AppState: Sendable {
             toolbarIcon: NSImage.gearshape!
           ) {
             GeneralSettingsPane()
+              .frame(minWidth: minimumWidth)
+          },
+          Settings.Pane(
+            identifier: Settings.PaneIdentifier.profiles,
+            title: profilesTitle,
+            toolbarIcon: NSImage(systemSymbolName: "person.crop.circle", accessibilityDescription: "profile")!
+          ) {
+            ProfilesSettingsPane()
               .frame(minWidth: minimumWidth)
           },
           Settings.Pane(

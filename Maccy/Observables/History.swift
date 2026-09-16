@@ -22,15 +22,18 @@ class History: ItemsContainer { // swiftlint:disable:this type_body_length
   var searchQuery: String = "" {
     didSet {
       throttler.throttle { [self] in
-        updateItems(search.search(string: searchQuery, within: all))
+        Task { @MainActor in
+          let visibleItems = profileFilteredItems()
+          updateItems(search.search(string: searchQuery, within: visibleItems))
 
-        if searchQuery.isEmpty {
-          AppState.shared.navigator.select(item: unpinnedItems.first)
-        } else {
-          AppState.shared.navigator.highlightFirst()
+          if searchQuery.isEmpty {
+            AppState.shared.navigator.select(item: unpinnedItems.first)
+          } else {
+            AppState.shared.navigator.highlightFirst()
+          }
+
+          AppState.shared.popup.needsResize = true
         }
-
-        AppState.shared.popup.needsResize = true
       }
     }
   }
@@ -99,14 +102,24 @@ class History: ItemsContainer { // swiftlint:disable:this type_body_length
         }
       }
     }
+
+    Task {
+      for await _ in Defaults.updates(.activeProfile, initial: false) {
+        Task { @MainActor in
+          reloadVisibleItems()
+        }
+      }
+    }
   }
 
   @MainActor
   func load() async throws {
+    ensureCurrentProfileIsKnown()
+
     let descriptor = FetchDescriptor<HistoryItem>()
     let results = try Storage.shared.context.fetch(descriptor)
     all = sorter.sort(results).map { HistoryItemDecorator($0) }
-    items = all
+    reloadVisibleItems()
 
     limitHistorySize(to: Defaults[.size])
 
@@ -115,6 +128,58 @@ class History: ItemsContainer { // swiftlint:disable:this type_body_length
     Task {
       AppState.shared.popup.needsResize = true
     }
+  }
+
+  @MainActor
+  func profileFilteredItems() -> [HistoryItemDecorator] {
+    let activeProfile = Defaults[.activeProfile]
+    guard !ProfileDefaults.isDefault(activeProfile) else {
+      return all
+    }
+
+    return all.filter { $0.item.profile == activeProfile }
+  }
+
+  @MainActor
+  private func ensureCurrentProfileIsKnown() {
+    let activeProfile = Defaults[.activeProfile]
+    var profileNames = Defaults[.profileNames]
+
+    if profileNames.isEmpty {
+      profileNames = [ProfileDefaults.defaultDisplayName]
+    }
+
+    if activeProfile == "All" {
+      Defaults[.activeProfile] = ProfileDefaults.defaultProfileID
+    }
+
+    if !profileNames.contains(ProfileDefaults.defaultDisplayName) {
+      profileNames.insert(ProfileDefaults.defaultDisplayName, at: 0)
+    }
+
+    if !ProfileDefaults.isDefault(Defaults[.activeProfile]) && !profileNames.contains(Defaults[.activeProfile]) {
+      profileNames.append(Defaults[.activeProfile])
+    }
+
+    Defaults[.profileNames] = profileNames
+  }
+
+  @MainActor
+  func reloadVisibleItems() {
+    let filteredItems = profileFilteredItems()
+    if searchQuery.isEmpty {
+      items = filteredItems
+    } else {
+      updateItems(search.search(string: searchQuery, within: filteredItems))
+    }
+
+    if searchQuery.isEmpty {
+      AppState.shared.navigator.select(item: unpinnedItems.first)
+    } else {
+      AppState.shared.navigator.highlightFirst()
+    }
+
+    AppState.shared.popup.needsResize = true
   }
 
   @MainActor
@@ -176,6 +241,8 @@ class History: ItemsContainer { // swiftlint:disable:this type_body_length
 
     sessionLog[Clipboard.shared.changeCount] = item
 
+    item.profile = Defaults[.activeProfile]
+
     var itemDecorator: HistoryItemDecorator
     if let pin = item.pin {
       itemDecorator = HistoryItemDecorator(item, shortcuts: KeyShortcut.create(character: pin))
@@ -191,12 +258,11 @@ class History: ItemsContainer { // swiftlint:disable:this type_body_length
       if let index = sortedItems.firstIndex(of: item) {
         all.insert(itemDecorator, at: index)
       }
-
-      items = all
-      updateUnpinnedShortcuts()
-      AppState.shared.popup.needsResize = true
     }
 
+    reloadVisibleItems()
+    updateUnpinnedShortcuts()
+    AppState.shared.popup.needsResize = true
     return itemDecorator
   }
 
@@ -216,24 +282,45 @@ class History: ItemsContainer { // swiftlint:disable:this type_body_length
   @MainActor
   func clear() {
     withLogging("Clearing history") {
+      let activeProfile = Defaults[.activeProfile]
+      let shouldClearItem = { (item: HistoryItemDecorator) -> Bool in
+        guard item.isUnpinned else {
+          return false
+        }
+
+        return ProfileDefaults.isDefault(activeProfile) || item.item.profile == activeProfile
+      }
+
       all.forEach { item in
-        if item.isUnpinned {
+        if shouldClearItem(item) {
           cleanup(item)
         }
       }
-      all.removeAll(where: \.isUnpinned)
-      sessionLog.removeValues { $0.pin == nil }
-      items = all
+
+      all.removeAll { shouldClearItem($0) }
+      sessionLog.removeValues { $0.pin == nil && (ProfileDefaults.isDefault(activeProfile) || $0.profile == activeProfile) }
+      items = profileFilteredItems()
 
       try? Storage.shared.context.transaction {
-        try? Storage.shared.context.delete(
-          model: HistoryItem.self,
-          where: #Predicate { $0.pin == nil }
-        )
-        try? Storage.shared.context.delete(
-          model: HistoryItemContent.self,
-          where: #Predicate { $0.item?.pin == nil }
-        )
+        if ProfileDefaults.isDefault(activeProfile) {
+          try? Storage.shared.context.delete(
+            model: HistoryItem.self,
+            where: #Predicate { $0.pin == nil }
+          )
+          try? Storage.shared.context.delete(
+            model: HistoryItemContent.self,
+            where: #Predicate { $0.item?.pin == nil }
+          )
+        } else {
+          try? Storage.shared.context.delete(
+            model: HistoryItem.self,
+            where: #Predicate { $0.pin == nil && $0.profile == activeProfile }
+          )
+          try? Storage.shared.context.delete(
+            model: HistoryItemContent.self,
+            where: #Predicate { $0.item?.pin == nil && $0.item?.profile == activeProfile }
+          )
+        }
       }
       Storage.shared.context.processPendingChanges()
       try? Storage.shared.context.save()

@@ -65,6 +65,17 @@ brew install maccy
 11. To ignore only the next copy, click on the menu icon with <kbd>OPTION (⌥)</kbd> + <kbd>SHIFT (⇧)</kbd> pressed.
 12. To customize the behavior, check "Preferences…" window, or press <kbd>COMMAND (⌘)</kbd> + <kbd>,</kbd>.
 
+### Profiles
+
+Maccy can switch between multiple clipboard profiles such as `All`, `Work`, and `Personal` from Preferences -> General -> Profiles. The current profile is applied immediately, and the default profile is still the built-in fallback even if you rename its visible label.
+
+If you want to switch profiles from the shell, use:
+
+```sh
+./scripts/maccy-profile set work
+./scripts/maccy-profile current
+```
+
 ## Advanced
 
 ### Ignore Copied Items
